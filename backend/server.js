@@ -37,7 +37,9 @@ app.get('/', (req, res) => {
  * Body: { sip, years, goal, stepUp, riskPreference }
  * Returns: Complete analysis payload
  */
-app.post('/simulate', (req, res) => {
+const axiosNode = require('axios'); // use explicit name to avoid conflict if axios is imported elsewhere or just use axios directly.
+
+app.post('/simulate', async (req, res) => {
   try {
     const { sip, years, goal, stepUp = 0, riskPreference = 'medium' } = req.body;
 
@@ -45,6 +47,22 @@ app.post('/simulate', (req, res) => {
     if (!sip || !years || !goal) {
       return res.status(400).json({ error: 'Missing required fields: sip, years, goal' });
     }
+
+    // A. Fetch Dynamic Market Stats from ML API
+    let dynamicMean = 0.12;
+    let dynamicVol = 0.15;
+    try {
+      const marketRes = await axiosNode.get('http://127.0.0.1:8000/api/market-conditions');
+      dynamicMean = marketRes.data.expected_return / 100;
+      dynamicVol = marketRes.data.volatility;
+    } catch (e) {
+      console.warn("ML API unreachable, using fallback market stats");
+    }
+
+    // Override the moderate profile dynamically
+    const { RETURN_PROFILES } = require('./simulation/monteCarlo');
+    RETURN_PROFILES.moderate.meanAnnual = dynamicMean;
+    RETURN_PROFILES.moderate.stdDevAnnual = dynamicVol;
 
     // 1. Run Monte Carlo simulation
     const simulationResult = runMonteCarloSimulation({
@@ -75,7 +93,7 @@ app.post('/simulate', (req, res) => {
       riskPreference,
     });
 
-    // 4. Generate AI analysis
+    // 4. Generate AI analysis (base rules + step-up options)
     const aiAnalysis = generateAIAnalysis({
       sip: Number(sip),
       years: Number(years),
@@ -86,6 +104,21 @@ app.post('/simulate', (req, res) => {
       riskScoreResult,
       comparisonResult,
     });
+
+    // B. Fetch Real ML Mutual Fund Recommendations
+    try {
+      const requiredReturn = (goal / (sip * years * 12)) * 10; // rough proxy for needed returns
+      const mfRes = await axiosNode.post('http://127.0.0.1:8000/api/recommend-funds', {
+        riskPreference,
+        requiredReturn: simulationResult.probability >= 65 ? dynamicMean*100 : (dynamicMean*100)+4
+      });
+      // Override the fake static funds with the real ML funds
+      if (mfRes.data && mfRes.data.funds) {
+        aiAnalysis.suggestedFunds.funds = mfRes.data.funds;
+      }
+    } catch (e) {
+      console.warn("ML Recommend API unreachable, using static fallback.");
+    }
 
     // 5. Generate trendlines
     const trendlineResult = generateTrendlines({
@@ -98,7 +131,6 @@ app.post('/simulate', (req, res) => {
 
     // Compose response
     res.json({
-      // Core simulation data
       average: simulationResult.average,
       median: simulationResult.median,
       worstCase: simulationResult.worstCase,
@@ -107,21 +139,16 @@ app.post('/simulate', (req, res) => {
       totalInvested: simulationResult.totalInvested,
       goalAchievable: simulationResult.goalAchievable,
 
-      // Risk assessment
       riskScore: riskScoreResult.riskScore,
       riskLevel: riskScoreResult.riskLevel,
       riskColor: riskScoreResult.riskColor,
       riskBreakdown: riskScoreResult.breakdown,
 
-      // Strategy comparison
       strategies: comparisonResult.strategies,
       bestStrategy: comparisonResult.bestStrategy,
-
-      // Trendline data for charts
       trendData: trendlineResult.trendData,
       comparisonTrendData: comparisonResult.trendData,
 
-      // AI analysis — core
       recommendation: aiAnalysis.recommendation,
       overallVerdict: aiAnalysis.overallVerdict,
       sentimentEmoji: aiAnalysis.sentimentEmoji,
@@ -130,7 +157,6 @@ app.post('/simulate', (req, res) => {
       suggestions: aiAnalysis.suggestions,
       summary: aiAnalysis.summary,
 
-      // AI analysis — new: step-up options & mutual fund suggestions
       stepUpOptions: aiAnalysis.stepUpOptions,
       suggestedFunds: aiAnalysis.suggestedFunds,
     });
