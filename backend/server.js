@@ -15,6 +15,9 @@ const { compareStrategies } = require('./simulation/strategies');
 const { calculateRiskScore } = require('./simulation/riskScoring');
 const { generateAIAnalysis } = require('./simulation/aiAnalysis');
 const { generateTrendlines } = require('./simulation/trendline');
+const { analyzePortfolio } = require('./simulation/portfolioAnalysis');
+const { initDB, getDBConnection } = require('./db');
+const { authRouter, authenticateToken } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -22,6 +25,9 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Auth routes
+app.use('/auth', authRouter);
 
 // Health check
 app.get('/', (req, res) => {
@@ -159,6 +165,9 @@ app.post('/simulate', async (req, res) => {
 
       stepUpOptions: aiAnalysis.stepUpOptions,
       suggestedFunds: aiAnalysis.suggestedFunds,
+      
+      baseSip: Number(sip),
+      baseGoal: Number(goal)
     });
   } catch (error) {
     console.error('Simulation error:', error);
@@ -212,9 +221,76 @@ app.post('/compare', (req, res) => {
   }
 });
 
+/**
+ * POST /analyze-portfolio
+ * 
+ * Analyze an array of holdings uploaded by the user via CSV.
+ */
+app.post('/analyze-portfolio', authenticateToken, async (req, res) => {
+  try {
+    const { holdings } = req.body;
+    if (!holdings || !Array.isArray(holdings)) {
+      return res.status(400).json({ error: 'Invalid or missing holdings array' });
+    }
+    
+    const analysis = analyzePortfolio(holdings);
+    if (analysis.error) {
+      return res.status(400).json({ error: analysis.error });
+    }
+
+    if (req.user) {
+      const db = await getDBConnection();
+      
+      // Deduplicate: Check if the last upload was identical
+      const lastRecord = await db.get(
+        'SELECT payload_json FROM portfolio_history WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1', 
+        [req.user.id]
+      );
+      
+      const newPayload = JSON.stringify(analysis);
+      if (!lastRecord || lastRecord.payload_json !== newPayload) {
+        await db.run(
+          'INSERT INTO portfolio_history (user_id, total_value, health_score, payload_json) VALUES (?, ?, ?, ?)',
+          [req.user.id, analysis.totalValue, analysis.healthScore, newPayload]
+        );
+      }
+    }
+
+    res.json(analysis);
+  } catch (error) {
+    console.error('Portfolio Analysis error:', error);
+    res.status(500).json({ error: 'Portfolio Analysis failed', message: error.message });
+  }
+});
+
+/**
+ * GET /history
+ * Fetch past portfolio uploads for the authenticated user.
+ */
+app.get('/history', authenticateToken, async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const db = await getDBConnection();
+    const rows = await db.all('SELECT id, timestamp, total_value, health_score, payload_json FROM portfolio_history WHERE user_id = ? ORDER BY timestamp DESC', [req.user.id]);
+    res.json(rows.map(row => ({
+      id: row.id,
+      timestamp: row.timestamp,
+      totalValue: row.total_value,
+      healthScore: row.health_score,
+      analysis: JSON.parse(row.payload_json)
+    })));
+  } catch(err) {
+    res.status(500).json({ error: 'Failed to fetch history' });
+  }
+});
+
 // Start server
-app.listen(PORT, () => {
-  console.log(`\n🛡️  InvestShield AI Backend running on http://localhost:${PORT}`);
-  console.log(`   POST /simulate  — Full simulation + AI analysis`);
-  console.log(`   POST /compare   — Strategy comparison\n`);
+initDB().then(() => {
+  app.listen(PORT, () => {
+    console.log(`\n🛡️  InvestShield AI Backend running on http://localhost:${PORT}`);
+    console.log(`   POST /simulate  — Full simulation + AI analysis`);
+    console.log(`   POST /compare   — Strategy comparison`);
+    console.log(`   POST /analyze-portfolio — Portfolio parsing & history`);
+    console.log(`   GET  /history  — History log retrieval\n`);
+  });
 });

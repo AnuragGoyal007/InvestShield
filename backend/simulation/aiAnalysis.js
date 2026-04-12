@@ -149,15 +149,50 @@ function generateAIAnalysis({
     }
 
     // Find the minimum step-up needed to reach goal (>= 65% probability)
-    const optimalOption = stepUpOptions.find(opt => opt.goalReachable);
+    let optimalOption = stepUpOptions.find(opt => opt.goalReachable);
     
-    insights.push({
-      type: 'info',
-      title: '💡 Step-up SIP Can Bridge The Gap',
-      text: optimalOption
-        ? `A ${optimalOption.label} (₹${optimalOption.amount.toLocaleString('en-IN')}/year increase) boosts your success probability to ${optimalOption.probability}%. Choose the option that fits your budget below!`
-        : `Even with step-up, reaching ₹${goal.toLocaleString('en-IN')} in ${years} years is challenging. Consider increasing your base SIP or extending the duration.`,
-    });
+    if (!optimalOption) {
+      // Find an extreme step-up if standard ones fail, to show an unrealistic warning option
+      const extremePcts = [40, 50, 75, 100, 150, 200, 300, 500];
+      for (const pct of extremePcts) {
+        const stepUpAmount = Math.ceil(sip * pct / 100);
+        const simResult = runMonteCarloSimulation({
+          sip, years, goal, stepUp: stepUpAmount, riskPreference, numSimulations: 500,
+        });
+        if (simResult.probability >= 65) {
+          optimalOption = {
+            percentage: pct,
+            amount: stepUpAmount,
+            label: `${pct}% Step-up ⚠️`,
+            description: `Extreme Step-up Needed! Increase SIP by ₹${stepUpAmount.toLocaleString('en-IN')}/yr`,
+            projectedValue: simResult.average,
+            probability: simResult.probability,
+            totalInvested: simResult.totalInvested,
+            goalReachable: true,
+            roi: simResult.totalInvested > 0 ? Math.round(((simResult.average - simResult.totalInvested) / simResult.totalInvested) * 100) : 0,
+            unrealisticWarning: true
+          };
+          stepUpOptions.push(optimalOption);
+          break;
+        }
+      }
+    }
+
+    if (optimalOption && optimalOption.unrealisticWarning) {
+      insights.push({
+        type: 'danger',
+        title: '⚠️ Unrealistic Goal Detected',
+        text: `Your goal is extremely aggressive for this timeline. You would need a massive ${optimalOption.label} to reach it, which is likely unsustainable. Please increase your base capital or extend your time horizon!`,
+      });
+    } else {
+      insights.push({
+        type: 'info',
+        title: '💡 Step-up SIP Can Bridge The Gap',
+        text: optimalOption
+          ? `A ${optimalOption.label} (₹${optimalOption.amount.toLocaleString('en-IN')}/year increase) boosts your success probability to ${optimalOption.probability}%. Choose the option that fits your budget below!`
+          : `Even with extreme step-ups, reaching ₹${goal.toLocaleString('en-IN')} in ${years} years is near impossible mathematically. Consider increasing your base SIP drastically or extending the duration.`,
+      });
+    }
   }
 
   // If user already selected a step-up (re-simulation), evaluate the chosen plan
