@@ -140,14 +140,6 @@ function App() {
   }, [sip, years, goal, stepUp, riskPreference]);
 
   /**
-   * Run simulation from scratch (resets step-up to 0)
-   */
-  const handleInitialSimulate = () => {
-    setStepUp(0);
-    handleSimulate(0);
-  };
-
-  /**
    * Handle user selecting a step-up option
    */
   const handleSelectStepUp = (amount) => {
