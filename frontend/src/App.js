@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import OnboardingTour from './components/OnboardingTour';
 import axios from 'axios';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -12,6 +13,10 @@ import ComparisonTable from './components/ComparisonTable';
 import AIInsights from './components/AIInsights';
 import StepUpOptions from './components/StepUpOptions';
 import MutualFundSuggestions from './components/MutualFundSuggestions';
+import HoldingsImport from './components/HoldingsImport';
+import PortfolioAnalyzerDashboard from './components/PortfolioAnalyzerDashboard';
+import AuthScreen from './components/AuthScreen';
+import InvestmentEducation from './components/InvestmentEducation';
 import './App.css';
 
 /**
@@ -27,6 +32,11 @@ import './App.css';
 const API_BASE = 'http://localhost:5000';
 
 function App() {
+  // ═══ Auth State ═══
+  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('token'));
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [pendingHoldings, setPendingHoldings] = useState(null);
+
   // ═══ Input State ═══
   const [sip, setSip] = useState(2000);
   const [years, setYears] = useState(5);
@@ -42,9 +52,63 @@ function App() {
   const [isExporting, setIsExporting] = useState(false);
   const reportRef = useRef(null);
 
+  // ═══ History State ═══
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Fetch history on auth
+  useEffect(() => {
+    if (isAuthenticated) fetchHistory();
+  }, [isAuthenticated]);
+
+  const fetchHistory = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    setHistoryLoading(true);
+    try {
+      const { data } = await axios.get(`${API_BASE}/history`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setHistory(data);
+    } catch (err) {
+      console.error('History fetch failed:', err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userEmail');
+    setIsAuthenticated(false);
+    setResult(null);
+    setPortfolioAnalysis(null);
+    setHistory([]);
+    setPendingHoldings(null);
+  };
+
+  const handleExportCSV = () => {
+    if (!portfolioAnalysis || !portfolioAnalysis.improvedPortfolio) return;
+    const rows = portfolioAnalysis.improvedPortfolio;
+    const header = 'Sector,Current %,Target %,Action\n';
+    const csv = header + rows.map(r => `${r.name},${r.percentage}%,${r.projectedPercentage}%,${r.action}`).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'InvestShield_Upgraded_Portfolio.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // ═══ Market News State ═══
   const [newsData, setNewsData] = useState([]);
   const [newsLoading, setNewsLoading] = useState(true);
+
+  // ═══ Portfolio Auditor State ═══
+  const [portfolioAnalysis, setPortfolioAnalysis] = useState(null);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [portfolioError, setPortfolioError] = useState(null);
 
   // ═══ Live Indices State ═══
   const [indices, setIndices] = useState({
@@ -69,9 +133,27 @@ function App() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Helper to check if Indian market is open
+  const isMarketOpen = () => {
+    try {
+      const dateStr = new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"});
+      const istDate = new Date(dateStr);
+      const day = istDate.getDay(); 
+      if (day === 0 || day === 6) return false;
+      const h = istDate.getHours();
+      const m = istDate.getMinutes();
+      const timeMap = h * 60 + m;
+      return timeMap >= (9 * 60 + 15) && timeMap <= (15 * 60 + 30);
+    } catch(e) {
+      return true; // Fallback to live if tz fails
+    }
+  };
+
   // Ticking Effect for Indices
   React.useEffect(() => {
     const interval = setInterval(() => {
+      if (!isMarketOpen()) return; // Pause updates if market is closed
+      
       setIndices(prev => {
         const tick = (val) => val + (Math.random() * 6 - 3); // random -3 to +3 movement
         return {
@@ -143,10 +225,53 @@ function App() {
    * Handle user selecting a step-up option
    */
   const handleSelectStepUp = (amount) => {
-    // Scroll to top
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Scroll to the simulator results instead of absolute top
+    document.getElementById('simulator')?.scrollIntoView({ behavior: 'smooth' });
     setStepUp(amount);
     handleSimulate(amount);
+  };
+
+  /**
+   * Run the Portfolio Analysis via backend API
+   */
+  const handleImportHoldings = async (holdingsData) => {
+    // If not authenticated, save the CSV data and show login modal
+    if (!localStorage.getItem('token')) {
+      setPendingHoldings(holdingsData);
+      setShowAuthModal(true);
+      return;
+    }
+
+    setPortfolioLoading(true);
+    setPortfolioError(null);
+    try {
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const response = await axios.post(`${API_BASE}/analyze-portfolio`, {
+        holdings: holdingsData
+      }, { headers });
+      setPortfolioAnalysis(response.data);
+      // Refresh history after new upload
+      if (token) fetchHistory();
+    } catch (err) {
+      console.error('Portfolio import failed:', err);
+      setPortfolioError(err.response?.data?.error || 'Failed to analyze portfolio context.');
+    } finally {
+      setPortfolioLoading(false);
+    }
+  };
+
+  /**
+   * Called after successful login/register from the modal.
+   * Re-processes the CSV that was pending.
+   */
+  const handleAuthSuccess = () => {
+    setIsAuthenticated(true);
+    setShowAuthModal(false);
+    if (pendingHoldings) {
+      handleImportHoldings(pendingHoldings);
+      setPendingHoldings(null);
+    }
   };
 
   /**
@@ -182,7 +307,12 @@ function App() {
 
   return (
     <div className="app-container">
-      <Header />
+      <OnboardingTour />
+      <Header 
+        isAuthenticated={isAuthenticated} 
+        onLogout={handleLogout}
+        onLoginClick={() => setShowAuthModal(true)}
+      />
 
       {/* ═══ Editorial Hero Section ═══ */}
       <section className="hero-section">
@@ -277,6 +407,10 @@ function App() {
                 {/* Top Stats Row */}
                 <div className="stats-row animate-cascade-1" style={{ paddingTop: '24px' }}>
                   <div className="stat-card">
+                    <p className="stat-value">₹{result.totalInvested?.toLocaleString('en-IN')}</p>
+                    <p className="stat-label">Total Invested</p>
+                  </div>
+                  <div className="stat-card">
                     <p className="stat-value">₹{result.average?.toLocaleString('en-IN')}</p>
                     <p className="stat-label">Expected Trajectory</p>
                   </div>
@@ -354,8 +488,8 @@ function App() {
                     <div style={{ marginTop: '24px' }}>
                       <StepUpOptions 
                         options={result.stepUpOptions} 
-                        sip={Number(sip)} 
-                        goal={Number(goal)} 
+                        sip={result.baseSip || Number(sip)} 
+                        goal={result.baseGoal || Number(goal)} 
                         onSelectStepUp={handleSelectStepUp} 
                       />
                     </div>
@@ -402,6 +536,133 @@ function App() {
           </div>
         </div>
       </section>
+
+      {/* ═══ Portfolio Auditor Section ═══ */}
+      <section id="portfolio-auditor" style={{ padding: '80px 24px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
+        <div className="section-header-editorial animate-cascade-1" style={{ marginBottom: 48, textAlign: 'left' }}>
+          <span style={{ color: '#00e5ff', fontSize: 13, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase' }}>Portfolio Telemetry</span>
+          <h2 style={{ fontSize: 48, marginTop: 8, marginBottom: 0 }}>AI Portfolio Auditor</h2>
+          <p style={{ margin: 0, maxWidth: 600, marginTop: 16 }}>
+            Upload your existing holdings to receive a granular health score and AI-guided rebalancing instructions.
+          </p>
+        </div>
+
+        {portfolioError && (
+          <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', padding: '16px', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.2)', marginBottom: '24px' }}>
+            ⚠️ {portfolioError}
+          </div>
+        )}
+
+        {!portfolioAnalysis ? (
+          <div className="animate-cascade-2">
+            <HoldingsImport onUploadSuccess={handleImportHoldings} loading={portfolioLoading} />
+          </div>
+        ) : (
+          <>
+            <PortfolioAnalyzerDashboard 
+              data={portfolioAnalysis} 
+              onReset={() => { 
+                setPortfolioAnalysis(null); 
+                setPortfolioError(null); 
+                setTimeout(() => document.getElementById('portfolio-auditor')?.scrollIntoView({ behavior: 'smooth' }), 50);
+              }} 
+            />
+            {/* CSV Export Button */}
+            {portfolioAnalysis.improvedPortfolio && portfolioAnalysis.improvedPortfolio.length > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 32 }}>
+                <button onClick={handleExportCSV} style={{
+                  padding: '14px 28px', background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
+                  boxShadow: '0 0 20px rgba(16,185,129,0.3)', transition: 'transform 0.2s'
+                }}
+                  onMouseOver={e => e.currentTarget.style.transform = 'scale(1.05)'}
+                  onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
+                >
+                  <span style={{ fontSize: 18 }}>📥</span> Download Upgraded Portfolio (CSV)
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      {/* ═══ Past Uploads History (only when logged in) ═══ */}
+      {isAuthenticated && (
+      <section id="upload-history" style={{ padding: '80px 24px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
+        <div className="section-header-editorial animate-cascade-1" style={{ marginBottom: 48, textAlign: 'left' }}>
+          <span style={{ color: '#00e5ff', fontSize: 13, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase' }}>Session Logs</span>
+          <h2 style={{ fontSize: 48, marginTop: 8, marginBottom: 0 }}>Past Uploads</h2>
+          <p style={{ margin: 0, maxWidth: 600, marginTop: 16 }}>
+            Every portfolio you analyze is securely saved to your account. Review or re-download any previous analysis.
+          </p>
+        </div>
+
+        {historyLoading ? (
+          <div style={{ textAlign: 'center', padding: '60px 0' }}>
+            <div className="loading-spinner-large" style={{ margin: '0 auto' }}></div>
+            <p style={{ marginTop: 16, color: '#00e5ff', letterSpacing: 1 }}>LOADING HISTORY...</p>
+          </div>
+        ) : history.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px 0', background: 'rgba(15,23,42,0.4)', borderRadius: 16, border: '1px dashed rgba(255,255,255,0.1)' }}>
+            <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.5 }}>📂</div>
+            <p style={{ color: '#a1a1aa', fontSize: 16 }}>No past uploads yet. Upload a CSV above to get started!</p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 20 }} className="animate-cascade-2">
+            {history.map((item, idx) => {
+              const date = new Date(item.timestamp);
+              const dateStr = date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+              const timeStr = date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+              const scoreColor = item.healthScore >= 75 ? '#10b981' : item.healthScore >= 50 ? '#f59e0b' : '#ef4444';
+
+              return (
+                <div key={item.id} style={{
+                  background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 16, padding: 24, transition: 'border-color 0.3s, transform 0.3s',
+                  cursor: 'pointer'
+                }}
+                  onMouseOver={e => { e.currentTarget.style.borderColor = 'rgba(0,229,255,0.3)'; e.currentTarget.style.transform = 'translateY(-3px)'; }}
+                  onMouseOut={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                  onClick={() => {
+                    setPortfolioAnalysis(item.analysis);
+                    setTimeout(() => {
+                      document.getElementById('portfolio-auditor')?.scrollIntoView({ behavior: 'smooth' });
+                    }, 50);
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <span style={{ fontSize: 12, color: '#71717a' }}>{dateStr} • {timeStr}</span>
+                    <span style={{ fontSize: 11, background: 'rgba(0,229,255,0.1)', color: '#00e5ff', padding: '3px 8px', borderRadius: 4, fontWeight: 700 }}>
+                      #{history.length - idx}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                    <div>
+                      <div style={{ fontSize: 13, color: '#a1a1aa', marginBottom: 4 }}>Portfolio Value</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', fontFamily: 'JetBrains Mono, monospace' }}>
+                        ₹{Number(item.totalValue).toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 13, color: '#a1a1aa', marginBottom: 4 }}>Health</div>
+                      <div style={{ fontSize: 28, fontWeight: 900, color: scoreColor, fontFamily: 'JetBrains Mono, monospace' }}>
+                        {item.healthScore}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 16, padding: '8px 12px', background: 'rgba(0,229,255,0.05)', borderRadius: 8, textAlign: 'center' }}>
+                    <span style={{ fontSize: 12, color: '#00e5ff', fontWeight: 600 }}>Click to view full analysis →</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+      )}
 
       {/* ═══ Feature Explainer Sections ═══ */}
       <section id="documentation" className="feature-section">
@@ -458,6 +719,11 @@ function App() {
             </div>
           )}
         </div>
+      </section>
+
+      {/* ═══ Investment Education Hub ═══ */}
+      <section id="education" style={{ padding: '100px 24px', borderTop: '1px dashed rgba(255,255,255,0.05)', borderBottom: '1px dashed rgba(255,255,255,0.05)', position: 'relative' }}>
+        <InvestmentEducation />
       </section>
 
       {/* ═══ Market Intelligence Section ═══ */}
@@ -554,8 +820,16 @@ function App() {
         transition: 'all 0.5s cubic-bezier(0.16, 1, 0.3, 1)'
       }} className="hidden md:flex">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', animation: 'pulse-glow 2s infinite' }}></span>
-          <span style={{ fontSize: 13, fontFamily: 'Outfit', color: '#a1a1aa', letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 600 }}>Live Market Data</span>
+          <span style={{ 
+            width: 8, 
+            height: 8, 
+            borderRadius: '50%', 
+            background: isMarketOpen() ? '#10b981' : '#f59e0b', 
+            animation: isMarketOpen() ? 'pulse-glow 2s infinite' : 'none' 
+          }}></span>
+          <span style={{ fontSize: 13, fontFamily: 'Outfit', color: '#a1a1aa', letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 600 }}>
+            {isMarketOpen() ? 'Live Market Data' : 'Market Closed (IST)'}
+          </span>
         </div>
 
         {/* NIFTY 50 */}
@@ -585,6 +859,14 @@ function App() {
           </div>
         </div>
       </div>
+
+      {/* ═══ Auth Modal (triggered on CSV upload) ═══ */}
+      {showAuthModal && (
+        <AuthScreen 
+          onLoginSuccess={handleAuthSuccess} 
+          onClose={() => { setShowAuthModal(false); setPendingHoldings(null); }} 
+        />
+      )}
 
     </div>
   );
