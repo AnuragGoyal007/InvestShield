@@ -29,7 +29,7 @@ import './App.css';
  *   4. Supports Step-up selection if goal not reachable
  */
 
-const API_BASE = 'http://localhost:5000';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 function App() {
   // ═══ Auth State ═══

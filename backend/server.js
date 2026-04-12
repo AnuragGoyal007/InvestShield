@@ -114,7 +114,8 @@ app.post('/simulate', async (req, res) => {
     // B. Fetch Real ML Mutual Fund Recommendations
     try {
       const requiredReturn = (goal / (sip * years * 12)) * 10; // rough proxy for needed returns
-      const mfRes = await axiosNode.post('http://127.0.0.1:8000/api/recommend-funds', {
+      const mlBaseUrl = process.env.ML_URL || 'http://127.0.0.1:8000';
+      const mfRes = await axiosNode.post(`${mlBaseUrl}/api/recommend-funds`, {
         riskPreference,
         requiredReturn: simulationResult.probability >= 65 ? dynamicMean*100 : (dynamicMean*100)+4
       });
