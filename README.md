@@ -9,6 +9,12 @@ InvestShield AI is a state-of-the-art financial projection orchestrator designed
 
 ## ✨ Core Technology Implementations
 
+*   **Portfolio Auditor & CSV Export:** 
+    Users can drop their raw portfolio holding CSVs directly into the platform. A proprietary AI heuristic engine analyzes sector concentrations and outputs a balanced, low-risk target allocation matrix. Users can generate both **PDF Reports** and export the raw target matrix via **CSV Download**.
+*   **Persistent & Secure Auth (SQLite & JWT):** 
+    Features a completely custom "Login-on-Demand" architecture. The platform is open for anonymous exploration. When saving portfolios, an integrated auth layer (bcrypt hashing + JWT tokens securely stored in a zero-config SQLite db) instantly converts anonymous users to authenticated profiles.
+*   **Knowledge Hub & Education Dashboard:** 
+    A fully responsive, filtering-enabled learning grid loaded with highly-distilled financial knowledge (Basics of Investing, ETFs vs Mutual Funds, Asset Allocation) to train beginners into confident market participants.
 *   **Institutional Stochastic Engine:** 
     A native Javascript backend running thousands of probabilistic Monte Carlo timeline projections against a user's target financial objectives in real-time.
 *   **Machine Learning Microservice (Python):** 
@@ -27,9 +33,12 @@ The ecosystem relies on an asynchronous 3-tier architecture handling logic acros
 ```text
 evolveai_hackathon/
 ├── frontend/              # View layer (React JS + Vite/Tailwind ecosystem)
-│   └── src/components     # Custom charts, live dashboards, dark-mode styling
+│   ├── src/components/    # Glassmorphic UI components, UI Modals, Learning Grids
+│   └── src/data/          # Scalable static configurations (education data)
 ├── backend/               # Processing layer (Node.js + Express JS)
-│   └── server.js          # REST API & Monte Carlo mathematics orchestrator 
+│   ├── server.js          # REST API & Monte Carlo mathematics orchestrator 
+│   ├── auth.js            # JWT verification & Identity orchestration
+│   └── db.js              # Embedded SQLite driver 
 └── ml-backend/            # AI Layer (Flask + Scikit-Learn Python logic)
     ├── app.py             # KNN nearest-fund content router
     └── mutual_funds_india.csv # Vector datastore
@@ -65,6 +74,7 @@ npm start
 *(Runs securely on default port `3000`)*
 
 Load `http://localhost:3000` in your Chromium/Webkit browser to access the finalized UI environment. 
+
 
 ## ⚖️ License
 Proprietary prediction engine mock-up built exclusively for the conceptual presentation phase of the **EvolveAI Hackathon**. Not financial advice. All operations and logic flows are structurally simulated demonstrations.
