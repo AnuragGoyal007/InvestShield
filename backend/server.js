@@ -16,7 +16,7 @@ const { calculateRiskScore } = require('./simulation/riskScoring');
 const { generateAIAnalysis } = require('./simulation/aiAnalysis');
 const { generateTrendlines } = require('./simulation/trendline');
 const { analyzePortfolio } = require('./simulation/portfolioAnalysis');
-const { initDB, getDBConnection } = require('./db');
+const { initDB, getDBConnection, PortfolioHistory } = require('./db');
 const { authRouter, authenticateToken } = require('./auth');
 
 const app = express();
@@ -240,20 +240,19 @@ app.post('/analyze-portfolio', authenticateToken, async (req, res) => {
     }
 
     if (req.user) {
-      const db = await getDBConnection();
+      await getDBConnection();
       
       // Deduplicate: Check if the last upload was identical
-      const lastRecord = await db.get(
-        'SELECT payload_json FROM portfolio_history WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1', 
-        [req.user.id]
-      );
+      const lastRecord = await PortfolioHistory.findOne({ userId: req.user.id }).sort({ timestamp: -1 });
       
       const newPayload = JSON.stringify(analysis);
       if (!lastRecord || lastRecord.payload_json !== newPayload) {
-        await db.run(
-          'INSERT INTO portfolio_history (user_id, total_value, health_score, payload_json) VALUES (?, ?, ?, ?)',
-          [req.user.id, analysis.totalValue, analysis.healthScore, newPayload]
-        );
+        await PortfolioHistory.create({
+          userId: req.user.id,
+          total_value: analysis.totalValue,
+          health_score: analysis.healthScore,
+          payload_json: newPayload
+        });
       }
     }
 
@@ -271,10 +270,10 @@ app.post('/analyze-portfolio', authenticateToken, async (req, res) => {
 app.get('/history', authenticateToken, async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    const db = await getDBConnection();
-    const rows = await db.all('SELECT id, timestamp, total_value, health_score, payload_json FROM portfolio_history WHERE user_id = ? ORDER BY timestamp DESC', [req.user.id]);
+    await getDBConnection();
+    const rows = await PortfolioHistory.find({ userId: req.user.id }).sort({ timestamp: -1 });
     res.json(rows.map(row => ({
-      id: row.id,
+      id: row._id,
       timestamp: row.timestamp,
       totalValue: row.total_value,
       healthScore: row.health_score,
