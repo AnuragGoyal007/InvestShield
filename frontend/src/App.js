@@ -112,10 +112,11 @@ function App() {
 
   // ═══ Live Indices State ═══
   const [indices, setIndices] = useState({
-    nifty: { value: 22643.40, change: 124.50 },
-    sensex: { value: 74589.20, change: 412.10 },
-    bankNifty: { value: 48432.10, change: 250.30 }
+    nifty: { value: 24850.00, change: 0.00 },
+    sensex: { value: 81600.00, change: 0.00 },
+    bankNifty: { value: 55200.00, change: 0.00 }
   });
+  const [indicesSource, setIndicesSource] = useState('loading'); // 'loading' | 'shoonya_live' | 'fallback'
 
   const [showTicker, setShowTicker] = useState(true);
 
@@ -149,8 +150,37 @@ function App() {
     }
   };
 
-  // Ticking Effect for Indices
+  // Fetch live indices from ML backend (Shoonya API) on mount + every 30s
+  const ML_BASE = process.env.REACT_APP_ML_URL || 'http://127.0.0.1:8000';
+  
   React.useEffect(() => {
+    const fetchIndices = async () => {
+      try {
+        const res = await axios.get(`${ML_BASE}/api/live-indices`);
+        if (res.data) {
+          setIndices({
+            nifty: res.data.nifty || indices.nifty,
+            sensex: res.data.sensex || indices.sensex,
+            bankNifty: res.data.bankNifty || indices.bankNifty
+          });
+          setIndicesSource(res.data.source || 'fallback');
+        }
+      } catch (err) {
+        console.warn('Live indices fetch failed, using simulated ticker.');
+        setIndicesSource('fallback');
+      }
+    };
+
+    fetchIndices();
+    const interval = setInterval(fetchIndices, 30000); // refresh every 30s
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Simulated Ticking Effect (only used if Shoonya is not connected)
+  React.useEffect(() => {
+    if (indicesSource === 'shoonya_live') return; // Don't simulate if we have real data
+    
     const interval = setInterval(() => {
       if (!isMarketOpen()) return; // Pause updates if market is closed
       
@@ -164,7 +194,8 @@ function App() {
       });
     }, 2500);
     return () => clearInterval(interval);
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indicesSource]);
 
   // Fetch Live Real-Time News on Mount
   React.useEffect(() => {
@@ -824,11 +855,11 @@ function App() {
             width: 8, 
             height: 8, 
             borderRadius: '50%', 
-            background: isMarketOpen() ? '#10b981' : '#f59e0b', 
-            animation: isMarketOpen() ? 'pulse-glow 2s infinite' : 'none' 
+            background: indicesSource === 'shoonya_live' ? '#10b981' : isMarketOpen() ? '#10b981' : '#f59e0b', 
+            animation: (indicesSource === 'shoonya_live' || isMarketOpen()) ? 'pulse-glow 2s infinite' : 'none' 
           }}></span>
           <span style={{ fontSize: 13, fontFamily: 'Outfit', color: '#a1a1aa', letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 600 }}>
-            {isMarketOpen() ? 'Live Market Data' : 'Market Closed (IST)'}
+            {indicesSource === 'shoonya_live' ? 'Live ● Shoonya API' : isMarketOpen() ? 'Live Market Data' : 'Market Closed (IST)'}
           </span>
         </div>
 
@@ -837,7 +868,7 @@ function App() {
           <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>NIFTY 50</span>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 16, color: '#fff', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>{indices.nifty.value.toFixed(2)}</div>
-            <div style={{ fontSize: 13, color: '#10b981', fontWeight: 700 }}>+{indices.nifty.change.toFixed(2)}</div>
+            <div style={{ fontSize: 13, color: indices.nifty.change >= 0 ? '#10b981' : '#ef4444', fontWeight: 700 }}>{indices.nifty.change >= 0 ? '+' : ''}{indices.nifty.change.toFixed(2)}</div>
           </div>
         </div>
 
@@ -846,7 +877,7 @@ function App() {
           <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>SENSEX</span>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 16, color: '#fff', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>{indices.sensex.value.toFixed(2)}</div>
-            <div style={{ fontSize: 13, color: '#10b981', fontWeight: 700 }}>+{indices.sensex.change.toFixed(2)}</div>
+            <div style={{ fontSize: 13, color: indices.sensex.change >= 0 ? '#10b981' : '#ef4444', fontWeight: 700 }}>{indices.sensex.change >= 0 ? '+' : ''}{indices.sensex.change.toFixed(2)}</div>
           </div>
         </div>
 
@@ -855,9 +886,23 @@ function App() {
           <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>BANK NIFTY</span>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 16, color: '#fff', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>{indices.bankNifty.value.toFixed(2)}</div>
-            <div style={{ fontSize: 13, color: '#10b981', fontWeight: 700 }}>+{indices.bankNifty.change.toFixed(2)}</div>
+            <div style={{ fontSize: 13, color: indices.bankNifty.change >= 0 ? '#10b981' : '#ef4444', fontWeight: 700 }}>{indices.bankNifty.change >= 0 ? '+' : ''}{indices.bankNifty.change.toFixed(2)}</div>
           </div>
         </div>
+
+        {/* Shoonya Attribution */}
+        {indicesSource === 'shoonya_live' && (
+          <div style={{ 
+            marginTop: 4, 
+            paddingTop: 8, 
+            borderTop: '1px solid rgba(255,255,255,0.08)', 
+            textAlign: 'center' 
+          }}>
+            <span style={{ fontSize: 10, color: '#71717a', fontFamily: 'Outfit', letterSpacing: 1 }}>
+              Powered by <span style={{ color: '#00e5ff', fontWeight: 600 }}>Shoonya API</span>
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ═══ Auth Modal (triggered on CSV upload) ═══ */}
