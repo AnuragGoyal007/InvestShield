@@ -19,6 +19,7 @@ import PortfolioAnalyzerDashboard from './components/PortfolioAnalyzerDashboard'
 import AuthScreen from './components/AuthScreen';
 import InvestmentEducation from './components/InvestmentEducation';
 import StockMarket from './components/StockMarket';
+import InvestIQDashboard from './components/InvestIQDashboard';
 import './App.css';
 
 /**
@@ -923,6 +924,7 @@ function App() {
     <Routes>
       <Route path="/" element={dashboard} />
       <Route path="/markets" element={<StockMarket />} />
+      <Route path="/investiq" element={<InvestIQDashboard />} />
     </Routes>
   );
 }
