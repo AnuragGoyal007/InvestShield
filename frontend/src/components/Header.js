@@ -109,6 +109,13 @@ export default function Header({ isAuthenticated, onLogout, onLoginClick }) {
               onMouseOut={e => e.target.style.color = '#00e5ff'}>
               Markets
             </span>
+            <span 
+              onClick={() => navigate('/investiq')}
+              style={{ cursor: 'pointer', transition: 'color 0.2s', color: '#f59e0b' }} 
+              onMouseOver={e => e.target.style.color = '#fff'} 
+              onMouseOut={e => e.target.style.color = '#f59e0b'}>
+              InvestIQ
+            </span>
           </nav>
           
           {/* Engine Online Badge */}
