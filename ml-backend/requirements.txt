@@ -6,3 +6,4 @@ scikit-learn
 NorenRestApiPy
 pyotp
 gunicorn
+yfinance

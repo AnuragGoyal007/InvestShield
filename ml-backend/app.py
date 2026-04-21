@@ -44,7 +44,7 @@ def initialize_shoonya():
     imei = os.environ.get('SHOONYA_IMEI', 'abc1234')
 
     if not all([user_id, password, vendor_code, api_secret]):
-        print("⚠️  Shoonya credentials not configured. Using fallback market data.")
+        print("[WARN] Shoonya credentials not configured. Using fallback market data.")
         print("   Set SHOONYA_USER, SHOONYA_PWD, SHOONYA_VENDOR_CODE, SHOONYA_API_SECRET env vars to enable live data.")
         return
 
@@ -77,17 +77,17 @@ def initialize_shoonya():
 
         if ret and ret.get('stat') == 'Ok':
             shoonya_connected = True
-            print(f"✅ Shoonya API connected successfully! User: {user_id}")
+            print(f"[OK] Shoonya API connected successfully! User: {user_id}")
             # Fetch initial data immediately
             fetch_live_indices()
         else:
             error_msg = ret.get('emsg', 'Unknown error') if ret else 'No response'
-            print(f"❌ Shoonya login failed: {error_msg}")
+            print(f"[ERR] Shoonya login failed: {error_msg}")
 
     except ImportError:
-        print("⚠️  NorenRestApiPy not installed. Run: pip install NorenRestApiPy")
+        print("[WARN] NorenRestApiPy not installed. Run: pip install NorenRestApiPy")
     except Exception as e:
-        print(f"❌ Shoonya connection error: {e}")
+        print(f"[ERR] Shoonya connection error: {e}")
 
 
 def fetch_live_indices():
@@ -131,10 +131,10 @@ def fetch_live_indices():
 
         live_indices_cache['source'] = 'shoonya_live'
         live_indices_cache['timestamp'] = time.strftime('%Y-%m-%d %H:%M:%S')
-        print(f"📊 Live indices updated: NIFTY={live_indices_cache['nifty']['value']}")
+        print(f"[DATA] Live indices updated: NIFTY={live_indices_cache['nifty']['value']}")
 
     except Exception as e:
-        print(f"⚠️  Error fetching live indices: {e}")
+        print(f"[WARN] Error fetching live indices: {e}")
         live_indices_cache['source'] = 'fallback'
 
 
@@ -239,6 +239,236 @@ def recommend_funds():
         })
         
     return jsonify({'funds': recommendations})
+
+# ═══ Stock Market Data Endpoints (Yahoo Finance) ═══
+import yfinance as yf
+from functools import lru_cache
+import json
+
+# In-memory cache for stock data
+stock_cache = {}
+CACHE_TTL = 60  # seconds
+
+def get_cached(key, fetch_fn, ttl=CACHE_TTL):
+    """Simple TTL cache for stock data."""
+    now = time.time()
+    if key in stock_cache:
+        data, ts = stock_cache[key]
+        if now - ts < ttl:
+            return data
+    data = fetch_fn()
+    stock_cache[key] = (data, now)
+    return data
+
+# Popular Indian stocks for search and trending
+INDIAN_STOCKS = [
+    {"symbol": "RELIANCE.NS", "name": "Reliance Industries Ltd", "exchange": "NSE"},
+    {"symbol": "TCS.NS", "name": "Tata Consultancy Services Ltd", "exchange": "NSE"},
+    {"symbol": "HDFCBANK.NS", "name": "HDFC Bank Ltd", "exchange": "NSE"},
+    {"symbol": "INFY.NS", "name": "Infosys Ltd", "exchange": "NSE"},
+    {"symbol": "ICICIBANK.NS", "name": "ICICI Bank Ltd", "exchange": "NSE"},
+    {"symbol": "HINDUNILVR.NS", "name": "Hindustan Unilever Ltd", "exchange": "NSE"},
+    {"symbol": "SBIN.NS", "name": "State Bank of India", "exchange": "NSE"},
+    {"symbol": "BHARTIARTL.NS", "name": "Bharti Airtel Ltd", "exchange": "NSE"},
+    {"symbol": "ITC.NS", "name": "ITC Ltd", "exchange": "NSE"},
+    {"symbol": "KOTAKBANK.NS", "name": "Kotak Mahindra Bank Ltd", "exchange": "NSE"},
+    {"symbol": "LT.NS", "name": "Larsen & Toubro Ltd", "exchange": "NSE"},
+    {"symbol": "AXISBANK.NS", "name": "Axis Bank Ltd", "exchange": "NSE"},
+    {"symbol": "BAJFINANCE.NS", "name": "Bajaj Finance Ltd", "exchange": "NSE"},
+    {"symbol": "MARUTI.NS", "name": "Maruti Suzuki India Ltd", "exchange": "NSE"},
+    {"symbol": "TITAN.NS", "name": "Titan Company Ltd", "exchange": "NSE"},
+    {"symbol": "SUNPHARMA.NS", "name": "Sun Pharmaceutical Industries", "exchange": "NSE"},
+    {"symbol": "TATAMOTORS.NS", "name": "Tata Motors Ltd", "exchange": "NSE"},
+    {"symbol": "WIPRO.NS", "name": "Wipro Ltd", "exchange": "NSE"},
+    {"symbol": "HCLTECH.NS", "name": "HCL Technologies Ltd", "exchange": "NSE"},
+    {"symbol": "ADANIENT.NS", "name": "Adani Enterprises Ltd", "exchange": "NSE"},
+    {"symbol": "TATASTEEL.NS", "name": "Tata Steel Ltd", "exchange": "NSE"},
+    {"symbol": "NTPC.NS", "name": "NTPC Ltd", "exchange": "NSE"},
+    {"symbol": "POWERGRID.NS", "name": "Power Grid Corporation", "exchange": "NSE"},
+    {"symbol": "ONGC.NS", "name": "Oil and Natural Gas Corporation", "exchange": "NSE"},
+    {"symbol": "COALINDIA.NS", "name": "Coal India Ltd", "exchange": "NSE"},
+    {"symbol": "DRREDDY.NS", "name": "Dr. Reddy's Laboratories", "exchange": "NSE"},
+    {"symbol": "CIPLA.NS", "name": "Cipla Ltd", "exchange": "NSE"},
+    {"symbol": "TECHM.NS", "name": "Tech Mahindra Ltd", "exchange": "NSE"},
+    {"symbol": "ULTRACEMCO.NS", "name": "UltraTech Cement Ltd", "exchange": "NSE"},
+    {"symbol": "NESTLEIND.NS", "name": "Nestle India Ltd", "exchange": "NSE"},
+    {"symbol": "BAJAJFINSV.NS", "name": "Bajaj Finserv Ltd", "exchange": "NSE"},
+    {"symbol": "ASIANPAINT.NS", "name": "Asian Paints Ltd", "exchange": "NSE"},
+    {"symbol": "JSWSTEEL.NS", "name": "JSW Steel Ltd", "exchange": "NSE"},
+    {"symbol": "M&M.NS", "name": "Mahindra & Mahindra Ltd", "exchange": "NSE"},
+    {"symbol": "DIVISLAB.NS", "name": "Divi's Laboratories Ltd", "exchange": "NSE"},
+    {"symbol": "HEROMOTOCO.NS", "name": "Hero MotoCorp Ltd", "exchange": "NSE"},
+    {"symbol": "EICHERMOT.NS", "name": "Eicher Motors Ltd", "exchange": "NSE"},
+    {"symbol": "BPCL.NS", "name": "Bharat Petroleum Corporation", "exchange": "NSE"},
+    {"symbol": "BRITANNIA.NS", "name": "Britannia Industries Ltd", "exchange": "NSE"},
+    {"symbol": "INDUSINDBK.NS", "name": "IndusInd Bank Ltd", "exchange": "NSE"},
+    {"symbol": "RELIANCE.BO", "name": "Reliance Industries Ltd", "exchange": "BSE"},
+    {"symbol": "TCS.BO", "name": "Tata Consultancy Services Ltd", "exchange": "BSE"},
+    {"symbol": "INFY.BO", "name": "Infosys Ltd", "exchange": "BSE"},
+]
+
+@app.route('/api/stock/search', methods=['GET'])
+def search_stocks():
+    """Search for stocks by name or symbol."""
+    query = request.args.get('q', '').strip().upper()
+    if not query or len(query) < 1:
+        return jsonify({'results': []})
+    
+    results = []
+    for stock in INDIAN_STOCKS:
+        if query in stock['symbol'].upper() or query in stock['name'].upper():
+            results.append(stock)
+    
+    return jsonify({'results': results[:10]})
+
+@app.route('/api/stock/quote', methods=['GET'])
+def get_stock_quote():
+    """Fetch live quote for a stock symbol."""
+    symbol = request.args.get('symbol', '').strip()
+    if not symbol:
+        return jsonify({'error': 'Symbol required'}), 400
+    
+    # Add .NS suffix if not present (default to NSE)
+    if '.' not in symbol:
+        symbol = f"{symbol}.NS"
+    
+    def fetch_quote():
+        try:
+            ticker = yf.Ticker(symbol)
+            info = ticker.info
+            
+            # Get fast_info for the most reliable price data
+            fast = ticker.fast_info
+            
+            current_price = info.get('currentPrice') or info.get('regularMarketPrice') or fast.get('lastPrice', 0)
+            prev_close = info.get('previousClose') or info.get('regularMarketPreviousClose') or fast.get('previousClose', current_price)
+            
+            change = round(current_price - prev_close, 2) if current_price and prev_close else 0
+            change_pct = round((change / prev_close) * 100, 2) if prev_close else 0
+            
+            return {
+                'symbol': symbol,
+                'name': info.get('longName') or info.get('shortName', symbol),
+                'currentPrice': round(current_price, 2),
+                'previousClose': round(prev_close, 2),
+                'change': change,
+                'changePercent': change_pct,
+                'dayHigh': info.get('dayHigh', 0),
+                'dayLow': info.get('dayLow', 0),
+                'fiftyTwoWeekHigh': info.get('fiftyTwoWeekHigh', 0),
+                'fiftyTwoWeekLow': info.get('fiftyTwoWeekLow', 0),
+                'volume': info.get('volume') or info.get('regularMarketVolume', 0),
+                'marketCap': info.get('marketCap', 0),
+                'pe': info.get('trailingPE', 0),
+                'eps': info.get('trailingEps', 0),
+                'dividend': info.get('dividendYield', 0),
+                'sector': info.get('sector', 'N/A'),
+                'industry': info.get('industry', 'N/A'),
+                'exchange': info.get('exchange', 'NSE'),
+                'currency': info.get('currency', 'INR'),
+                'marketState': info.get('marketState', 'CLOSED'),
+                'source': 'yahoo_finance'
+            }
+        except Exception as e:
+            print(f"Error fetching quote for {symbol}: {e}")
+            return {'error': str(e), 'symbol': symbol}
+    
+    result = get_cached(f"quote_{symbol}", fetch_quote, ttl=30)
+    return jsonify(result)
+
+@app.route('/api/stock/history', methods=['GET'])
+def get_stock_history():
+    """Fetch historical price data for charting."""
+    symbol = request.args.get('symbol', '').strip()
+    period = request.args.get('period', '1mo')  # 1d, 5d, 1mo, 3mo, 6mo, 1y, 5y
+    interval = request.args.get('interval', '')
+    
+    if not symbol:
+        return jsonify({'error': 'Symbol required'}), 400
+    
+    if '.' not in symbol:
+        symbol = f"{symbol}.NS"
+    
+    # Auto-select interval based on period
+    if not interval:
+        interval_map = {
+            '1d': '5m', '5d': '15m', '1mo': '1d',
+            '3mo': '1d', '6mo': '1d', '1y': '1wk', '5y': '1mo'
+        }
+        interval = interval_map.get(period, '1d')
+    
+    def fetch_history():
+        try:
+            ticker = yf.Ticker(symbol)
+            hist = ticker.history(period=period, interval=interval)
+            
+            if hist.empty:
+                return {'error': 'No data found', 'symbol': symbol, 'data': []}
+            
+            data = []
+            for idx, row in hist.iterrows():
+                data.append({
+                    'date': idx.strftime('%Y-%m-%d %H:%M') if interval in ['5m', '15m', '30m', '1h'] else idx.strftime('%Y-%m-%d'),
+                    'open': round(row['Open'], 2),
+                    'high': round(row['High'], 2),
+                    'low': round(row['Low'], 2),
+                    'close': round(row['Close'], 2),
+                    'volume': int(row['Volume'])
+                })
+            
+            return {
+                'symbol': symbol,
+                'period': period,
+                'interval': interval,
+                'data': data,
+                'source': 'yahoo_finance'
+            }
+        except Exception as e:
+            print(f"Error fetching history for {symbol}: {e}")
+            return {'error': str(e), 'symbol': symbol, 'data': []}
+    
+    ttl = 300 if period in ['1y', '5y'] else 60
+    result = get_cached(f"history_{symbol}_{period}_{interval}", fetch_history, ttl=ttl)
+    return jsonify(result)
+
+@app.route('/api/stock/trending', methods=['GET'])
+def get_trending_stocks():
+    """Fetch data for trending Indian stocks (top 10 NIFTY components)."""
+    trending_symbols = [
+        'RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'INFY.NS', 'ICICIBANK.NS',
+        'BHARTIARTL.NS', 'SBIN.NS', 'ITC.NS', 'KOTAKBANK.NS', 'LT.NS',
+        'BAJFINANCE.NS', 'TATAMOTORS.NS'
+    ]
+    
+    def fetch_trending():
+        results = []
+        for sym in trending_symbols:
+            try:
+                ticker = yf.Ticker(sym)
+                fast = ticker.fast_info
+                info = ticker.info
+                
+                current = info.get('currentPrice') or info.get('regularMarketPrice', 0)
+                prev = info.get('previousClose', current)
+                change = round(current - prev, 2) if current and prev else 0
+                change_pct = round((change / prev) * 100, 2) if prev else 0
+                
+                results.append({
+                    'symbol': sym,
+                    'name': info.get('shortName', sym.replace('.NS', '')),
+                    'price': round(current, 2),
+                    'change': change,
+                    'changePercent': change_pct,
+                    'volume': info.get('volume', 0),
+                    'marketCap': info.get('marketCap', 0)
+                })
+            except Exception as e:
+                print(f"Skipping {sym}: {e}")
+                continue
+        return results
+    
+    result = get_cached('trending_stocks', fetch_trending, ttl=120)
+    return jsonify({'stocks': result})
 
 if __name__ == '__main__':
     initialize_models()

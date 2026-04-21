@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import OnboardingTour from './components/OnboardingTour';
 import axios from 'axios';
 import html2canvas from 'html2canvas';
@@ -17,6 +18,7 @@ import HoldingsImport from './components/HoldingsImport';
 import PortfolioAnalyzerDashboard from './components/PortfolioAnalyzerDashboard';
 import AuthScreen from './components/AuthScreen';
 import InvestmentEducation from './components/InvestmentEducation';
+import StockMarket from './components/StockMarket';
 import './App.css';
 
 /**
@@ -336,7 +338,7 @@ function App() {
     }
   };
 
-  return (
+  const dashboard = (
     <div className="app-container">
       <OnboardingTour />
       <Header 
@@ -914,6 +916,14 @@ function App() {
       )}
 
     </div>
+  );
+
+  // ═══ App-Level Routing ═══
+  return (
+    <Routes>
+      <Route path="/" element={dashboard} />
+      <Route path="/markets" element={<StockMarket />} />
+    </Routes>
   );
 }
 
