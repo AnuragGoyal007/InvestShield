@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 /**
  * Header Component
@@ -7,6 +8,7 @@ import React, { useState, useRef, useEffect } from 'react';
 export default function Header({ isAuthenticated, onLogout, onLoginClick }) {
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
+  const navigate = useNavigate();
   const userEmail = localStorage.getItem('userEmail') || '';
   const initials = userEmail ? userEmail.charAt(0).toUpperCase() : '?';
 
@@ -101,10 +103,10 @@ export default function Header({ isAuthenticated, onLogout, onLoginClick }) {
               Education
             </span>
             <span 
-              onClick={() => document.getElementById('market-news')?.scrollIntoView({ behavior: 'smooth' })}
-              style={{ cursor: 'pointer', transition: 'color 0.2s' }} 
+              onClick={() => navigate('/markets')}
+              style={{ cursor: 'pointer', transition: 'color 0.2s', color: '#00e5ff' }} 
               onMouseOver={e => e.target.style.color = '#fff'} 
-              onMouseOut={e => e.target.style.color = '#a1a1aa'}>
+              onMouseOut={e => e.target.style.color = '#00e5ff'}>
               Markets
             </span>
           </nav>
