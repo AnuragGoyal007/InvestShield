@@ -455,11 +455,11 @@ function App() {
                   </div>
                   <div className="stat-card">
                     <p className="stat-value" style={{ fontSize: '20px' }}>₹{result.worstCase?.toLocaleString('en-IN')}</p>
-                    <p className="stat-label">5th Percentile Floor</p>
+                    <p className="stat-label">WORST CASE OUTPUT</p>
                   </div>
                   <div className="stat-card">
                     <p className="stat-value" style={{ fontSize: '20px' }}>₹{result.bestCase?.toLocaleString('en-IN')}</p>
-                    <p className="stat-label">95th Percentile Ceiling</p>
+                    <p className="stat-label">BEST CASE OUTPUT</p>
                   </div>
                 </div>
 
